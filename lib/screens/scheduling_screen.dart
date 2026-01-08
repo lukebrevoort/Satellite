@@ -1308,7 +1308,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   }
 
   /// Handle auto-scrolling when dragging near the top or bottom edge of the calendar
-  void _handleAutoScroll(double localY, double viewportHeight) {
+  void _handleAutoScroll(double localY, double viewportHeight, int startHour) {
     const double edgeThreshold = 60.0;
     const double scrollSpeed = 5.0;
 
@@ -1331,7 +1331,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           final schedule = settingsProvider.todaySchedule;
           final newPreviewTime = _calculateTimeFromPosition(
             _dragPosition!,
-            schedule.activeStartHour,
+            startHour, // Use the passed display start hour
             schedule.activeEndHour,
           );
           if (newPreviewTime != _previewTime) {
@@ -1354,7 +1354,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           final schedule = settingsProvider.todaySchedule;
           final newPreviewTime = _calculateTimeFromPosition(
             _dragPosition!,
-            schedule.activeStartHour,
+            startHour, // Use the passed display start hour
             schedule.activeEndHour,
           );
           if (newPreviewTime != _previewTime) {
@@ -1380,6 +1380,11 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
     final ratio = _getProjectedRatio(taskProvider, settingsProvider);
     final percentage = (ratio * 100).toInt();
     final schedule = settingsProvider.todaySchedule;
+
+    // Calculate display start hour (one hour before active start hour for buffer)
+    final displayStartHour = schedule.activeStartHour > 0
+        ? schedule.activeStartHour - 1
+        : 0;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -1454,9 +1459,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                     },
                     onMove: (details) {
                       // Update drag position and calculate preview time
+                      // Use displayStartHour for calculation to align with visual display
                       final previewTime = _calculateTimeFromPosition(
                         details.offset,
-                        schedule.activeStartHour,
+                        displayStartHour,
                         schedule.activeEndHour,
                       );
                       if (previewTime != _previewTime ||
@@ -1478,6 +1484,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                         _handleAutoScroll(
                           localPosition.dy,
                           calendarBox.size.height,
+                          displayStartHour, // Pass display start hour to auto-scroll logic
                         );
                       }
                     },
@@ -1498,10 +1505,11 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                         _previewTime = null;
                         _draggingTask = null;
                       });
+                      // Use displayStartHour for drop calculation
                       _onTaskDropped(
                         details.data,
                         details.offset,
-                        schedule.activeStartHour,
+                        displayStartHour,
                         schedule.activeEndHour,
                       );
                     },
@@ -1519,7 +1527,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                               maxDay: _today,
                               initialDay: _today,
                               heightPerMinute: 1.2,
-                              startHour: schedule.activeStartHour,
+                              startHour:
+                                  displayStartHour, // Use the buffered start hour
                               endHour: schedule.activeEndHour,
                               showHalfHours: true,
                               dayTitleBuilder: (_) => const SizedBox.shrink(),

@@ -831,83 +831,63 @@ class _DayScheduleEditorState extends State<_DayScheduleEditor> {
   }) {
     // Defensive: older persisted data used 24 to represent "end of day".
     // Our model expects 0-23.
-    //
-    // IMPORTANT: We must also pass the *sanitized* hour to callbacks, otherwise
-    // the minute picker can re-emit the original invalid hour (e.g. 24) and
-    // crash the next rebuild.
     final safeHour = hour == 24 ? 0 : hour.clamp(0, 23);
+    final timeOfDay = TimeOfDay(hour: safeHour, minute: minute);
 
-    return Row(
-      children: [
-        // Hour picker
-        Expanded(
-          child: Container(
-            height: 56,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<int>(
-                value: safeHour,
-                isExpanded: true,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                borderRadius: BorderRadius.circular(12),
-                items: List.generate(24, (h) {
-                  final displayHour = h > 12 ? h - 12 : (h == 0 ? 12 : h);
-                  final period = h >= 12 ? 'PM' : 'AM';
-                  return DropdownMenuItem(
-                    value: h,
-                    child: Text(
-                      '$displayHour $period',
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                  );
-                }),
-                onChanged: (value) {
-                  if (value != null) onChanged(value, minute);
-                },
+    return InkWell(
+      onTap: () async {
+        final TimeOfDay? newTime = await showTimePicker(
+          context: context,
+          initialTime: timeOfDay,
+          initialEntryMode: TimePickerEntryMode.input, // Text input by default
+          builder: (BuildContext context, Widget? child) {
+            return Theme(
+              data: Theme.of(context).copyWith(
+                colorScheme: const ColorScheme.light(
+                  primary: Colors.black, // Header background color
+                  onPrimary: Colors.white, // Header text color
+                  onSurface: Colors.black, // Body text color
+                ),
+                textButtonTheme: TextButtonThemeData(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.black, // Button text color
+                  ),
+                ),
+              ),
+              child: child!,
+            );
+          },
+        );
+
+        if (newTime != null) {
+          onChanged(newTime.hour, newTime.minute);
+        }
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.access_time, color: Colors.grey.shade600),
+            const SizedBox(width: 12),
+            Text(
+              timeOfDay.format(context),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w500,
+                color: Colors.black87,
               ),
             ),
-          ),
+            const Spacer(),
+            Icon(Icons.arrow_drop_down, color: Colors.grey.shade600),
+          ],
         ),
-        const SizedBox(width: 12),
-        const Text(
-          ':',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(width: 12),
-        // Minute picker
-        Expanded(
-          child: Container(
-            height: 56,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<int>(
-                value: minute,
-                isExpanded: true,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                borderRadius: BorderRadius.circular(12),
-                items: [0, 15, 30, 45].map((m) {
-                  return DropdownMenuItem(
-                    value: m,
-                    child: Text(
-                      m.toString().padLeft(2, '0'),
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  if (value != null) onChanged(safeHour, value);
-                },
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

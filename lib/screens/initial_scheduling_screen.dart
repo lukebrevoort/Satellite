@@ -7,11 +7,32 @@ import 'package:uuid/uuid.dart';
 
 import '../models/signal_task.dart';
 import '../models/time_slot.dart';
+import '../models/google_calendar_event.dart';
 import '../providers/signal_task_provider.dart';
 import '../providers/tag_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/calendar_provider.dart';
 import '../widgets/scheduling/split_schedule_dialog.dart';
 import '../widgets/common/blinking_dot.dart';
+
+/// Wrapper to represent either a SignalTask or an external GoogleCalendarEvent
+/// This allows us to display both types in the same calendar view
+class CalendarItem {
+  final SignalTask? signalTask;
+  final TimeSlot? timeSlot; // The specific time slot for Signal tasks
+  final GoogleCalendarEvent? externalEvent;
+
+  CalendarItem.fromSignalTask(this.signalTask, this.timeSlot)
+    : externalEvent = null;
+  CalendarItem.fromExternalEvent(this.externalEvent)
+    : signalTask = null,
+      timeSlot = null;
+
+  bool get isSignalTask => signalTask != null;
+  bool get isExternalEvent => externalEvent != null;
+
+  String get title => signalTask?.title ?? externalEvent?.title ?? 'Unknown';
+}
 
 /// Screen for initial scheduling of today's tasks
 /// Forces user to schedule ALL tasks before proceeding to dashboard
@@ -26,11 +47,11 @@ class InitialSchedulingScreen extends StatefulWidget {
 class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
   final Uuid _uuid = const Uuid();
   final DateTime _today = DateTime.now();
-  late EventController<SignalTask> _eventController;
+  late EventController<CalendarItem> _eventController;
 
   // For drag-and-drop functionality
   final GlobalKey _calendarKey = GlobalKey();
-  final GlobalKey<DayViewState<SignalTask>> _dayViewKey = GlobalKey();
+  final GlobalKey<DayViewState<CalendarItem>> _dayViewKey = GlobalKey();
   bool _isDragging = false;
   Offset? _dragPosition; // Track current drag position for time preview
   DateTime? _previewTime; // The time at the current drag position
@@ -41,10 +62,10 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
   @override
   void initState() {
     super.initState();
-    _eventController = EventController<SignalTask>();
-    // Load existing scheduled tasks into calendar
+    _eventController = EventController<CalendarItem>();
+    // Load existing scheduled tasks and external events into calendar
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _syncTasksToCalendar();
+      _syncAllEventsToCalendar();
     });
   }
 
@@ -55,10 +76,9 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
     super.dispose();
   }
 
-  /// Sync tasks from provider to calendar controller
+  /// Sync Signal tasks from provider to calendar controller
   void _syncTasksToCalendar() {
     final taskProvider = context.read<SignalTaskProvider>();
-    _eventController.removeWhere((event) => true);
 
     for (final task in taskProvider.scheduledTasks) {
       for (final slot in task.timeSlots) {
@@ -69,14 +89,55 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
         // - Finalized sessions (completed + past 15min merge window) use actual times
         // - Active/resumable sessions use session times or planned times
         if (_isSameDay(slot.calendarStartTime, _today)) {
-          _addEventToCalendar(
-            task,
-            slot.calendarStartTime,
-            slot.calendarEndTime,
-          );
+          _addSignalTaskToCalendar(task, slot);
         }
       }
     }
+  }
+
+  /// Sync external Google Calendar events to the calendar
+  Future<void> _syncExternalEventsToCalendar() async {
+    final calendarProvider = context.read<CalendarProvider>();
+
+    // Only load if connected to Google Calendar
+    if (!calendarProvider.isConnected) return;
+
+    // Load events for today
+    await calendarProvider.loadEventsForDate(_today);
+
+    // Add external events (not Signal tasks) to the calendar
+    for (final event in calendarProvider.externalEvents) {
+      if (_isSameDay(event.startTime, _today) && !event.isAllDay) {
+        // Skip if this event has already been imported to a Signal task
+        if (_isEventAlreadyImported(event.id)) {
+          continue;
+        }
+        _addExternalEventToCalendar(event);
+      }
+    }
+  }
+
+  /// Sync all events (Signal tasks + external Google Calendar events)
+  Future<void> _syncAllEventsToCalendar() async {
+    _eventController.removeWhere((event) => true);
+    _syncTasksToCalendar();
+    await _syncExternalEventsToCalendar();
+    if (mounted) setState(() {});
+  }
+
+  /// Check if an external event has already been imported
+  bool _isEventAlreadyImported(String externalEventId) {
+    final taskProvider = context.read<SignalTaskProvider>();
+    final allTasks = taskProvider.tasks;
+
+    for (final task in allTasks) {
+      for (final slot in task.timeSlots) {
+        if (slot.externalCalendarEventId == externalEventId) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /// Calculate projected signal ratio based on scheduled tasks
@@ -247,7 +308,7 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
     await provider.addTimeSlotToTask(task.id, slot);
 
     // Add to calendar with bounds checking
-    _addEventToCalendar(task, startTime, endTime);
+    _addSignalTaskToCalendar(task, slot);
 
     setState(() {});
   }
@@ -345,17 +406,102 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
     return '${startHour.toString().padLeft(2, '0')}:00 - ${endHour.toString().padLeft(2, '0')}:00';
   }
 
-  void _onEventTap(List<CalendarEventData<SignalTask>> events, DateTime date) {
+  void _onEventTap(
+    List<CalendarEventData<CalendarItem>> events,
+    DateTime date,
+  ) {
     if (events.isEmpty) return;
 
     final event = events.first;
-    final task = event.event;
-    if (task == null) return;
+    final item = event.event;
+    if (item == null) return;
 
-    _showEventOptions(task, event);
+    // Only allow editing Signal tasks, not external events
+    if (item.isSignalTask && item.signalTask != null) {
+      _showEventOptions(item.signalTask!, event);
+    } else if (item.isExternalEvent && item.externalEvent != null) {
+      _showExternalEventInfo(item.externalEvent!);
+    }
   }
 
-  void _showEventOptions(SignalTask task, CalendarEventData<SignalTask> event) {
+  /// Basic info sheet for external Google Calendar events (read-only)
+  void _showExternalEventInfo(GoogleCalendarEvent event) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'Google Calendar',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.black54,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                event.title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.schedule, size: 16, color: Colors.grey.shade600),
+                  const SizedBox(width: 8),
+                  Text(
+                    _formatTimeRange(event.startTime, event.endTime),
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+              if (event.description != null &&
+                  event.description!.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  event.description!,
+                  style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+              const SizedBox(height: 16),
+              Text(
+                'This event is read-only in Satellite.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade500,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showEventOptions(
+    SignalTask task,
+    CalendarEventData<CalendarItem> event,
+  ) {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -392,7 +538,7 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
 
   Future<void> _rescheduleTask(
     SignalTask task,
-    CalendarEventData<SignalTask> event,
+    CalendarEventData<CalendarItem> event,
   ) async {
     final settingsProvider = context.read<SettingsProvider>();
     final schedule = settingsProvider.todaySchedule;
@@ -452,12 +598,15 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
 
     // Update calendar with bounds checking
     _eventController.remove(event);
-    _addEventToCalendar(task, newStart, newEnd);
+    _addSignalTaskToCalendar(
+      task,
+      slot.copyWith(plannedStartTime: newStart, plannedEndTime: newEnd),
+    );
   }
 
   Future<void> _removeSchedule(
     SignalTask task,
-    CalendarEventData<SignalTask> event,
+    CalendarEventData<CalendarItem> event,
   ) async {
     final provider = context.read<SignalTaskProvider>();
 
@@ -584,27 +733,48 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
     }
   }
 
-  /// Add event to calendar with proper bounds checking
-  void _addEventToCalendar(
-    SignalTask task,
-    DateTime startTime,
-    DateTime endTime,
-  ) {
-    final clampedEnd = _clampToEndOfDay(endTime, _today);
+  /// Add a Signal task event to calendar with proper bounds checking.
+  /// Uses calendarStartTime/calendarEndTime which respect session finalization.
+  void _addSignalTaskToCalendar(SignalTask task, TimeSlot slot) {
+    final displayStart = slot.calendarStartTime;
+    final displayEnd = slot.calendarEndTime;
+    final clampedEnd = _clampToEndOfDay(displayEnd, _today);
 
     // Ensure startTime is before endTime
-    if (!startTime.isBefore(clampedEnd)) {
+    if (!displayStart.isBefore(clampedEnd)) {
       return; // Invalid event, skip
     }
 
     _eventController.add(
-      CalendarEventData<SignalTask>(
+      CalendarEventData<CalendarItem>(
         date: _today,
-        startTime: startTime,
+        startTime: displayStart,
         endTime: clampedEnd,
         title: task.title,
-        event: task,
+        event: CalendarItem.fromSignalTask(task, slot),
         color: _getTaskColor(task),
+      ),
+    );
+  }
+
+  /// Add an external Google Calendar event to the calendar (read-only, grayed)
+  void _addExternalEventToCalendar(GoogleCalendarEvent event) {
+    final localStart = event.startTime.toLocal();
+    final localEnd = event.endTime.toLocal();
+    final clampedEnd = _clampToEndOfDay(localEnd, _today);
+
+    if (!localStart.isBefore(clampedEnd)) {
+      return;
+    }
+
+    _eventController.add(
+      CalendarEventData<CalendarItem>(
+        date: _today,
+        startTime: localStart,
+        endTime: clampedEnd,
+        title: event.title,
+        event: CalendarItem.fromExternalEvent(event),
+        color: Colors.grey.shade400,
       ),
     );
   }
@@ -691,9 +861,11 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
         if (_dragPosition != null && mounted) {
           final settingsProvider = context.read<SettingsProvider>();
           final schedule = settingsProvider.todaySchedule;
+          // Use display start hour (active - 1) for calculations
+          final displayStartHour = (schedule.activeStartHour - 1).clamp(0, 23);
           final newPreviewTime = _calculateTimeFromPosition(
             _dragPosition!,
-            schedule.activeStartHour,
+            displayStartHour,
             schedule.activeEndHour,
           );
           if (newPreviewTime != _previewTime) {
@@ -714,9 +886,11 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
         if (_dragPosition != null && mounted) {
           final settingsProvider = context.read<SettingsProvider>();
           final schedule = settingsProvider.todaySchedule;
+          // Use display start hour (active - 1) for calculations
+          final displayStartHour = (schedule.activeStartHour - 1).clamp(0, 23);
           final newPreviewTime = _calculateTimeFromPosition(
             _dragPosition!,
-            schedule.activeStartHour,
+            displayStartHour,
             schedule.activeEndHour,
           );
           if (newPreviewTime != _previewTime) {
@@ -743,6 +917,10 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
     final ratio = _getProjectedRatio(taskProvider, settingsProvider);
     final percentage = (ratio * 100).toInt();
     final schedule = settingsProvider.todaySchedule;
+    // Start 1 hour earlier than active time to provide visual buffer
+    final displayStartHour = schedule.activeStartHour > 0
+        ? schedule.activeStartHour - 1
+        : 0;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -776,7 +954,7 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
                       // Update drag position and calculate preview time
                       final previewTime = _calculateTimeFromPosition(
                         details.offset,
-                        schedule.activeStartHour,
+                        displayStartHour,
                         schedule.activeEndHour,
                       );
                       if (previewTime != _previewTime ||
@@ -821,17 +999,17 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
                       _onTaskDropped(
                         details.data,
                         details.offset,
-                        schedule.activeStartHour,
+                        displayStartHour,
                         schedule.activeEndHour,
                       );
                     },
                     builder: (context, candidateData, rejectedData) {
                       return Stack(
                         children: [
-                          CalendarControllerProvider<SignalTask>(
+                          CalendarControllerProvider<CalendarItem>(
                             key: _calendarKey,
                             controller: _eventController,
-                            child: DayView<SignalTask>(
+                            child: DayView<CalendarItem>(
                               key: _dayViewKey,
                               controller: _eventController,
                               showVerticalLine: false,
@@ -839,7 +1017,7 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
                               maxDay: _today,
                               initialDay: _today,
                               heightPerMinute: 1.2,
-                              startHour: schedule.activeStartHour,
+                              startHour: displayStartHour,
                               endHour: schedule.activeEndHour,
                               showHalfHours: true,
                               dayTitleBuilder: (_) => const SizedBox.shrink(),
@@ -927,25 +1105,48 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
   }
 
   Widget _buildEventTile(
-    List<CalendarEventData<SignalTask>> events,
+    List<CalendarEventData<CalendarItem>> events,
     Rect boundary,
   ) {
     if (events.isEmpty) return const SizedBox.shrink();
 
     final event = events.first;
-    final task = event.event;
-    if (task == null) return const SizedBox.shrink();
+    final item = event.event;
+    if (item == null) return const SizedBox.shrink();
 
-    // Find the matching time slot for this event
-    final slot = task.timeSlots.cast<TimeSlot?>().firstWhere(
-      (s) =>
-          s != null &&
-          s.plannedStartTime.hour == event.startTime!.hour &&
-          s.plannedStartTime.minute == event.startTime!.minute,
-      orElse: () => task.timeSlots.isNotEmpty ? task.timeSlots.first : null,
-    );
+    // External Google Calendar events (read-only)
+    if (item.isExternalEvent && item.externalEvent != null) {
+      return GestureDetector(
+        onTap: () => _onEventTap(events, event.date),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(6),
+            border: Border(
+              left: BorderSide(color: Colors.grey.shade500, width: 3),
+            ),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          clipBehavior: Clip.hardEdge,
+          child: Text(
+            event.title,
+            style: TextStyle(
+              color: Colors.grey.shade800,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      );
+    }
 
-    if (slot == null) return const SizedBox.shrink();
+    // Signal task events
+    final task = item.signalTask;
+    final slot = item.timeSlot;
+    if (task == null || slot == null) return const SizedBox.shrink();
 
     final status = slot.displayStatus;
     final baseColor = event.color;
@@ -960,21 +1161,18 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
     final isMediumEvent = availableHeight < 50; // ~45min events
 
     // Visual indicators based on status
-    Color bgColor;
-    BorderSide leftBorder;
+    Color bgColor = baseColor.withValues(alpha: 0.65);
+    BorderSide leftBorder = BorderSide(color: baseColor, width: 3);
     Widget? statusIcon;
 
     switch (status) {
       case TimeSlotStatus.scheduled:
-        // Future prediction - slightly lighter/dashed appearance
         bgColor = baseColor.withValues(alpha: 0.65);
         leftBorder = BorderSide(color: baseColor, width: 3);
         break;
       case TimeSlotStatus.active:
-        // Currently running - solid, bright with distinct active indicator
         bgColor = baseColor.withValues(alpha: 0.9);
         leftBorder = BorderSide(color: Colors.green.shade600, width: 4);
-        // Only show icon if we have space - use white pill with green icon for visibility
         if (!isVerySmallEvent) {
           statusIcon = Container(
             margin: const EdgeInsets.only(right: 6),
@@ -983,10 +1181,8 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
         }
         break;
       case TimeSlotStatus.completed:
-        // Past fact - solid, slightly muted with checkmark
         bgColor = baseColor.withValues(alpha: 0.85);
         leftBorder = BorderSide(color: baseColor, width: 3);
-        // Only show icon if we have space
         if (!isVerySmallEvent) {
           statusIcon = Icon(
             Icons.check_circle,
@@ -996,10 +1192,8 @@ class _InitialSchedulingScreenState extends State<InitialSchedulingScreen> {
         }
         break;
       case TimeSlotStatus.missed:
-        // Missed - grayed out with high-contrast warning indicator
         bgColor = Colors.grey.shade300;
         leftBorder = BorderSide(color: Colors.red.shade400, width: 3);
-        // Only show icon if we have space - white background for contrast
         if (!isVerySmallEvent) {
           statusIcon = Container(
             padding: const EdgeInsets.all(2),

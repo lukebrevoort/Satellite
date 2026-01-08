@@ -70,7 +70,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           _previousStep();
         }
       },
-      child: _buildCurrentStep(),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 500),
+        switchInCurve: Curves.easeInOut,
+        switchOutCurve: Curves.easeInOut,
+        transitionBuilder: (Widget child, Animation<double> animation) {
+          return FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.98, end: 1.0).animate(animation),
+              child: child,
+            ),
+          );
+        },
+        child: KeyedSubtree(
+          key: ValueKey<int>(_currentStep),
+          child: _buildCurrentStep(),
+        ),
+      ),
     );
   }
 
