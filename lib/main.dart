@@ -314,12 +314,16 @@ class _SignalNoiseAppState extends State<SignalNoiseApp>
   }
 
   void _onOnboardingComplete() {
-    setState(() {
-      _showOnboarding = false;
-    });
     // Mark onboarding complete in both old and new settings
     SettingsService().completeOnboarding();
     _settingsProvider.completeOnboarding();
+
+    setState(() {
+      _showOnboarding = false;
+      // After onboarding, go to daily planning flow so user can add more tasks
+      // and schedule their day (whether they created a first task or not)
+      _initialScreen = const DailyPlanningFlow(rolloverSuggestions: []);
+    });
   }
 
   @override
