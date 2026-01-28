@@ -105,6 +105,10 @@ class _TagSelectorState extends State<TagSelector> {
   Widget build(BuildContext context) {
     return Consumer<TagProvider>(
       builder: (context, tagProvider, _) {
+        final viewInsets = MediaQuery.of(context).viewInsets;
+        final maxDropdownHeight = (MediaQuery.of(context).size.height * 0.35)
+            .clamp(220.0, 360.0)
+            .toDouble();
         final allTags = tagProvider.tags;
         final selectedTags = widget.selectedTagIds
             .map((id) => tagProvider.getTag(id))
@@ -183,112 +187,124 @@ class _TagSelectorState extends State<TagSelector> {
               // Expanded dropdown
               if (_isExpanded) ...[
                 const SizedBox(height: 4),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.08),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Search input
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: TextField(
-                          controller: _searchController,
-                          focusNode: _focusNode,
-                          decoration: InputDecoration(
-                            hintText: 'Search or create tag...',
-                            hintStyle: TextStyle(color: Colors.grey.shade400),
-                            prefixIcon: Icon(
-                              Icons.search,
-                              color: Colors.grey.shade400,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(6),
-                              borderSide: BorderSide(
-                                color: Colors.grey.shade200,
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(6),
-                              borderSide: BorderSide(
-                                color: Colors.grey.shade200,
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(6),
-                              borderSide: const BorderSide(color: Colors.black),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            isDense: true,
-                          ),
-                          onChanged: (value) {
-                            setState(() {
-                              _searchQuery = value;
-                            });
-                          },
+                AnimatedPadding(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  padding: EdgeInsets.only(bottom: viewInsets.bottom),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
                         ),
-                      ),
-
-                      // Tag list
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 200),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              // Create new option
-                              if (canCreateNew)
-                                _TagOption(
-                                  label: 'Create "$_searchQuery"',
-                                  icon: Icons.add_circle_outline,
-                                  onTap: () =>
-                                      _createTag(_searchQuery, tagProvider),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Search input
+                        Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: TextField(
+                            controller: _searchController,
+                            focusNode: _focusNode,
+                            scrollPadding: EdgeInsets.only(
+                              bottom: viewInsets.bottom + 24,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: 'Search or create tag...',
+                              hintStyle: TextStyle(color: Colors.grey.shade400),
+                              prefixIcon: Icon(
+                                Icons.search,
+                                color: Colors.grey.shade400,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6),
+                                borderSide: BorderSide(
+                                  color: Colors.grey.shade200,
                                 ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6),
+                                borderSide: BorderSide(
+                                  color: Colors.grey.shade200,
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6),
+                                borderSide: const BorderSide(
+                                  color: Colors.black,
+                                ),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              isDense: true,
+                            ),
+                            onChanged: (value) {
+                              setState(() {
+                                _searchQuery = value;
+                              });
+                            },
+                          ),
+                        ),
 
-                              // Existing tags
-                              ...filteredTags.map((tag) {
-                                final isSelected = widget.selectedTagIds
-                                    .contains(tag.id);
-                                return _TagOption(
-                                  tag: tag,
-                                  isSelected: isSelected,
-                                  onTap: () => _toggleTag(tag.id),
-                                );
-                              }),
+                        // Tag list
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: maxDropdownHeight,
+                          ),
+                          child: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // Create new option
+                                if (canCreateNew)
+                                  _TagOption(
+                                    label: 'Create "$_searchQuery"',
+                                    icon: Icons.add_circle_outline,
+                                    onTap: () =>
+                                        _createTag(_searchQuery, tagProvider),
+                                  ),
 
-                              // Empty state
-                              if (filteredTags.isEmpty && !canCreateNew)
-                                Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Text(
-                                    'No tags found',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: Colors.grey.shade500,
-                                      fontSize: 14,
+                                // Existing tags
+                                ...filteredTags.map((tag) {
+                                  final isSelected = widget.selectedTagIds
+                                      .contains(tag.id);
+                                  return _TagOption(
+                                    tag: tag,
+                                    isSelected: isSelected,
+                                    onTap: () => _toggleTag(tag.id),
+                                  );
+                                }),
+
+                                // Empty state
+                                if (filteredTags.isEmpty && !canCreateNew)
+                                  Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Text(
+                                      'No tags found',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade500,
+                                        fontSize: 14,
+                                      ),
                                     ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                      // Bottom padding for cleaner look
-                      const SizedBox(height: 8),
-                    ],
+                        // Bottom padding for cleaner look
+                        const SizedBox(height: 8),
+                      ],
+                    ),
                   ),
                 ),
               ],

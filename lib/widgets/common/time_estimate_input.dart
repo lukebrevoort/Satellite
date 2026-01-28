@@ -111,6 +111,7 @@ class _TimeField extends StatelessWidget {
     return TextField(
       controller: controller,
       keyboardType: TextInputType.number,
+      textInputAction: TextInputAction.done,
       inputFormatters: [
         FilteringTextInputFormatter.digitsOnly,
         _MaxValueFormatter(maxValue),
@@ -125,6 +126,8 @@ class _TimeField extends StatelessWidget {
         ),
       ),
       onChanged: (_) => onChanged(),
+      onSubmitted: (_) => FocusScope.of(context).unfocus(),
+      onTapOutside: (_) => FocusScope.of(context).unfocus(),
     );
   }
 }
@@ -250,6 +253,7 @@ class _TimeEstimateSelectorState extends State<TimeEstimateSelector> {
       _selectedMinutes = minutes;
       _showCustomInput = false;
     });
+    FocusScope.of(context).unfocus();
     widget.onMinutesChanged(minutes);
   }
 
@@ -291,6 +295,9 @@ class _TimeEstimateSelectorState extends State<TimeEstimateSelector> {
             setState(() {
               _showCustomInput = !_showCustomInput;
             });
+            if (!_showCustomInput) {
+              FocusScope.of(context).unfocus();
+            }
           },
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),

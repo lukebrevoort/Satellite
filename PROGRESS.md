@@ -1,3 +1,16 @@
+## 2026-01-27 18:45 UTC
+### TASKS COMPLETED
+- Improved tag selector accessibility by expanding dropdown height and padding for keyboard visibility.
+- Added keyboard dismissal behavior for custom time inputs and scrollable forms.
+- Simulated Add Signal Task flow on iPhone 17 simulator and verified tag dropdown visibility plus custom time inputs.
+### IN PROGRESS
+- None.
+### BLOCKERS
+- iOS simulator build timed out via Xcode MCP (app launched from existing build).
+### NEXT STEPS
+- Re-run iOS simulator build to confirm the latest changes are compiled and installed.
+- Smoke-test tag selection and custom time keyboard dismissal in onboarding and daily planning flows.
+
 ## 2026-01-27 10:00 UTC
 ### TASKS COMPLETED
 - Added an Add to Signal flow for external Google Calendar events in the initial scheduling screen, including create-new-task and add-to-existing-task options.

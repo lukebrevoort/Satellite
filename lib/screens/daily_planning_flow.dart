@@ -315,6 +315,7 @@ class _TaskNamesStep extends StatelessWidget {
 
     return ListView(
       padding: const EdgeInsets.all(20),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       children: [
         // Header
         Text(
@@ -619,6 +620,7 @@ class _TimeEstimatesStep extends StatelessWidget {
 
     return ListView(
       padding: const EdgeInsets.all(20),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       children: [
         // Header
         Text(
@@ -818,6 +820,7 @@ class _TagsStep extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(20),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       children: [
         // Header
         Text(
