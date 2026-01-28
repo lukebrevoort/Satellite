@@ -187,7 +187,11 @@ class _Zen80AppState extends State<Zen80App> with WidgetsBindingObserver {
 
   /// Handle when a task is auto-ended (timer reached end and autoEnd is enabled)
   void _handleTaskAutoEnded(SignalTask task, TimeSlot slot) {
-    final duration = Duration(seconds: slot.accumulatedSeconds);
+    final updatedSlot = task.timeSlots.firstWhere(
+      (s) => s.id == slot.id,
+      orElse: () => slot,
+    );
+    final duration = Duration(seconds: updatedSlot.accumulatedSeconds);
 
     // Show task auto-ended notification
     NotificationService().showTaskAutoEndedNotification(
@@ -196,7 +200,7 @@ class _Zen80AppState extends State<Zen80App> with WidgetsBindingObserver {
     );
 
     // Cancel the slot-specific notifications since task has ended
-    NotificationService().cancelSlotNotifications(slot.id);
+    NotificationService().cancelSlotNotifications(updatedSlot.id);
 
     // Check for next task and show reminder if enabled
     if (_settingsProvider.enableNextTaskReminders) {

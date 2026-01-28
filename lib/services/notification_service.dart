@@ -44,8 +44,6 @@ class NotificationService {
   static const int _morningReminderNotificationId = 20;
   static const int _noiseWarningNotificationId = 30;
   static const int _inactivityNotificationId = 40;
-  static const int _productivityNotificationId =
-      50; // For positive reinforcement
   static const int _smartNudgeNotificationId =
       55; // For smart nudge notifications
   static const int _taskStartingSoonBaseId = 100; // +taskId.hashCode
@@ -630,9 +628,6 @@ class NotificationService {
 
     // Update notifications to show accurate time for the actual task being worked on
     await _rescheduleNotificationsForActiveTask(activeTask, activeSlot);
-
-    // Show positive reinforcement for starting work
-    await _showProductivityNotification(activeTask, activeSlot);
   }
 
   /// Update notifications when user stops working on a task
@@ -676,39 +671,6 @@ class NotificationService {
       slot: slot,
       minutesBeforeStart: 0, // Task already started
       minutesBeforeEnd: 5,
-    );
-  }
-
-  /// Show positive reinforcement notification for productive work
-  Future<void> _showProductivityNotification(
-    SignalTask task,
-    TimeSlot slot,
-  ) async {
-    // Calculate total time including current session (not just accumulated)
-    final currentSessionTime = slot.actualStartTime != null && slot.isActive
-        ? DateTime.now().difference(slot.actualStartTime!)
-        : Duration.zero;
-    final totalTime =
-        Duration(seconds: slot.accumulatedSeconds) + currentSessionTime;
-    final elapsedStr = _formatDuration(totalTime);
-
-    const darwinDetails = DarwinNotificationDetails(
-      presentAlert: false, // Don't interrupt - this is positive reinforcement
-      presentBadge: false,
-      presentSound: false,
-      interruptionLevel: InterruptionLevel.passive,
-    );
-
-    const details = NotificationDetails(
-      iOS: darwinDetails,
-      macOS: darwinDetails,
-    );
-
-    await _notifications.show(
-      _productivityNotificationId,
-      'Working on ${task.title} 🎯',
-      'Great focus! You\'ve spent $elapsedStr on this task.',
-      details,
     );
   }
 
