@@ -92,9 +92,38 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Use effective start time if the user started early today.
     // This ensures early work (before configured start) counts toward the ratio.
-    final effectiveStart = settingsProvider.getEffectiveStartTime(
+    DateTime? effectiveStart = settingsProvider.getEffectiveStartTime(
       DateTime(now.year, now.month, now.day),
     );
+
+    // Fallback: derive the earliest actual start today if no override exists.
+    // This prevents ratios from snapping to 0 before focus start after an early session ends.
+    final scheduleStart = schedule.getStartTimeForDate(now);
+    DateTime? earliestActualStart;
+    for (final task in taskProvider.tasks) {
+      for (final slot in task.timeSlots) {
+        if (slot.isDiscarded) continue;
+        final candidate = slot.sessionStartTime ?? slot.actualStartTime;
+        if (candidate == null) continue;
+        if (candidate.year != now.year ||
+            candidate.month != now.month ||
+            candidate.day != now.day) {
+          continue;
+        }
+        if (earliestActualStart == null ||
+            candidate.isBefore(earliestActualStart)) {
+          earliestActualStart = candidate;
+        }
+      }
+    }
+
+    if (earliestActualStart != null &&
+        earliestActualStart.isBefore(scheduleStart)) {
+      if (effectiveStart == null ||
+          earliestActualStart.isBefore(effectiveStart)) {
+        effectiveStart = earliestActualStart;
+      }
+    }
 
     int elapsedMinutes;
     if (effectiveStart != null) {
