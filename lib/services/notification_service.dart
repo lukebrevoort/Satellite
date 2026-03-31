@@ -78,12 +78,20 @@ class NotificationService {
   static const int _inactivityNotificationId = 40;
   static const int _smartNudgeNotificationId =
       55; // For smart nudge notifications
-  static const int _taskStartingSoonBaseId = 100; // +taskId.hashCode
-  static const int _taskStartPromptBaseId = 200; // +taskId.hashCode
-  static const int _taskEndingSoonBaseId = 300; // +taskId.hashCode
-  static const int _taskAutoEndedBaseId = 400; // +taskId.hashCode
-  static const int _nextTaskReminderBaseId = 500; // +taskId.hashCode
-  static const int _rolloverMorningBaseId = 600; // +taskId.hashCode
+  static const int _notificationTypeRangeSize = 10000;
+  static const int _taskStartingSoonBaseId = 10000; // +slot hash (0-9999)
+  static const int _taskStartPromptBaseId = 20000; // +slot hash (0-9999)
+  static const int _taskEndingSoonBaseId = 30000; // +slot hash (0-9999)
+  static const int _taskAutoEndedBaseId = 40000; // +slot hash (0-9999)
+  static const int _nextTaskReminderBaseId = 50000; // +slot hash (0-9999)
+  static const int _rolloverMorningBaseId = 60000; // +slot hash (0-9999)
+  static const List<int> _slotScopedNotificationBaseIds = <int>[
+    _taskStartingSoonBaseId,
+    _taskStartPromptBaseId,
+    _taskEndingSoonBaseId,
+    _taskAutoEndedBaseId,
+    _nextTaskReminderBaseId,
+  ];
   static const Duration _autoEndedNotificationDelay = Duration(seconds: 20);
   static const Duration _nextTaskNotificationDelay = Duration(seconds: 5);
 
@@ -224,7 +232,7 @@ class NotificationService {
     final now = DateTime.now();
 
     // Calculate unique notification ID for this slot
-    final slotIdHash = slot.id.hashCode.abs() % 10000;
+    final slotIdHash = _slotNotificationOffset(slot.id);
 
     // 1. Task Starting Soon (X min before planned start)
     if (minutesBeforeStart > 0) {
@@ -310,13 +318,10 @@ class NotificationService {
 
   /// Cancel all notifications for a specific time slot
   Future<void> cancelSlotNotifications(String slotId) async {
-    final slotIdHash = slotId.hashCode.abs() % 10000;
-
-    await _notifications.cancel(_taskStartingSoonBaseId + slotIdHash);
-    await _notifications.cancel(_taskStartPromptBaseId + slotIdHash);
-    await _notifications.cancel(_taskEndingSoonBaseId + slotIdHash);
-    await _notifications.cancel(_taskAutoEndedBaseId + slotIdHash);
-    await _notifications.cancel(_nextTaskReminderBaseId + slotIdHash);
+    final ids = _slotScopedNotificationIds(slotId);
+    for (final id in ids) {
+      await _notifications.cancel(id);
+    }
   }
 
   /// Schedule completion + next-task notifications for an active timer.
@@ -341,7 +346,7 @@ class NotificationService {
     );
     if (completionTime.isBefore(now)) return;
 
-    final slotIdHash = activeSlot.id.hashCode.abs() % 10000;
+    final slotIdHash = _slotNotificationOffset(activeSlot.id);
     final timerPayload = _buildTimerPayload(activeTask.id, activeSlot.id);
     final plannedDuration = activeSlot.plannedEndTime.difference(
       activeSlot.plannedStartTime,
@@ -1047,6 +1052,52 @@ class NotificationService {
 
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  static int _slotNotificationOffset(String slotId) {
+    return slotId.hashCode.abs() % _notificationTypeRangeSize;
+  }
+
+  static List<int> _slotScopedNotificationIds(String slotId) {
+    final offset = _slotNotificationOffset(slotId);
+    return _slotScopedNotificationBaseIds
+        .map((baseId) => baseId + offset)
+        .toList(growable: false);
+  }
+
+  @visibleForTesting
+  static int notificationTypeRangeSizeForTesting() {
+    return _notificationTypeRangeSize;
+  }
+
+  @visibleForTesting
+  static List<int> slotScopedNotificationBaseIdsForTesting() {
+    return _slotScopedNotificationBaseIds;
+  }
+
+  @visibleForTesting
+  static List<int> notificationBaseIdsForTesting() {
+    return const <int>[
+      _taskStartingSoonBaseId,
+      _taskStartPromptBaseId,
+      _taskEndingSoonBaseId,
+      _taskAutoEndedBaseId,
+      _nextTaskReminderBaseId,
+      _rolloverMorningBaseId,
+    ];
+  }
+
+  @visibleForTesting
+  static List<int> slotScopedNotificationIdsForTesting(String slotId) {
+    return _slotScopedNotificationIds(slotId);
+  }
+
+  @visibleForTesting
+  static int computeSlotScopedNotificationIdForTesting({
+    required int baseId,
+    required String slotId,
+  }) {
+    return baseId + _slotNotificationOffset(slotId);
   }
 
   /// Format duration as readable string
